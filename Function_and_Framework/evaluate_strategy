@@ -1,0 +1,77 @@
+import numpy as np
+import pandas as pd 
+import matplotlib.pyplot as plt
+import math
+plt.rcParams['font.sans-serif']=['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+#数据结构：
+#date_list = Series()
+#account_money = Series()
+#date_and_hold = {date0:int0,date1,int1}
+
+#date_list = 
+
+def get_max_withdraw(Series):
+    
+    max2here = Series.expanding().max()
+    withdraw = 1 - Series / max2here
+    #这里应该还要算一个最大回撤的天数的
+    return max(withdraw)
+
+def get_annual_return(Series):
+    Ra = np.zeros(len(Series))
+    for i in range(len(Series)):
+        Ret = Series[i] / Series[0] - 1
+        Ra[i] = (1 + Ret) ** (252/i) - 1 
+    return Ra
+
+def get_return(account_money,date_list):
+    strategy_total_return = account_money[(len(account_money)-1)]/account_money[0] - 1
+    strategy_daily_return = account_money / account_money.shift(1) - 1 
+    strategy_cum_return = account_money / account_money[0] - 1 
+    mean_daily_return = strategy_daily_return.mean()
+    std_daily_return = strategy_daily_return.std()
+    max_withdraw = get_max_withdraw(account_money)
+    
+    
+    print('策略在回测期间总收益为:%s'%(strategy_total_return))
+    print('策略的日收益均值为:%s,其标准差为%s'%(mean_daily_return,std_daily_return))
+    print('策略的最大回撤为:%s'%(max_withdraw))
+    print('策略的累计收益曲线如下图所示')
+
+    plt.figure(figsize=(12,8))
+    plt.plot(date_list,strategy_cum_return,lw=1,color='blue',label='累计收益')
+    
+def Beta(account_money,benchmark_data):
+    
+    s1 = account_money.pct_change()
+    s2 = benchmark_data.pct_change()
+    
+    beta = np.cov(s1,s2)[0][1]/np.var(s2)
+    return beta
+    
+def sharpe_ratio(account_money,risk_free):
+    
+    s1 = account_money.pct_change()
+    s1_mean = s1.mean()
+    s1_std = s1.std()
+    
+    Sharpe_ratio = (s1_mean - risk_free)/s1_std
+    return Sharpe_ratio
+
+def alpha():
+    pass
+
+def Information_ratio(account_money,risk_free,benchmark_data):
+    pass
+   
+def Strategy_Volatility(account_money):
+    pass
+
+def winning_ratio():
+    pass
+
+def Profit_to_Loss():
+    #Profit/loss
+    pass
