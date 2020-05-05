@@ -1,0 +1,145 @@
+import pandas as pd  
+import numpy as np
+import tafunction as taf
+import os
+import time
+
+today=time.strftime('%Y-%m-%d',time.localtime(time.time()))    #获取今天的日期，下面作为默认参数用
+
+
+#获取单票k线数据
+def get_k_data(code,start='1991-01-01',end=today,freq='day',fq='qfq'):
+    
+    if freq not in ['day','month','week']:
+        raise Exception('Wrong freq input! freq should be one of \[\'day\',\'month\',\'week\'\]')
+    
+    if fq not in ['qfq','hfq','none']:
+        raise Exception('Wrong fq input! fq should be one of \[\'qfq\',\'hfq\',\'none\'\]:')
+    
+    if start < '1991-01-01' or end > today:
+        raise Exception('Please check startday or endday')
+    
+    if fq == 'qfq':
+        data1 = pd.read_csv('D:\\stock_data\\xbdata\\xbdata\\'+freq+'\\'+code+'.csv')
+    
+    if fq == 'hfq' or fq == 'none':
+        data1 = pd.read_csv('D:\\stock_data\\xbdata\\xbdata\\'+freq+'\\'+fq+'\\'+code+'.csv')
+    
+    data = data1.copy()
+    df = data[(data.date>start) & (data.date<end)]
+    del df[df.columns[0]]
+    df.reset_index(inplace=True,drop=True)
+    df['return'] = df['close'].pct_change()               #增加了一列return，也可以不加
+    
+    return df 
+
+
+
+# 能根据index来获取所选股票的数据, 也就是从开始那天多少条数据
+def get_k_n_data(code, index, start='1991-01-01', freq='day', fq='qfq'):
+    
+    if freq not in ['day','month','week']:
+        raise Exception('Wrong freq input! freq should be one of \[\'day\',\'month\',\'week\'\]')
+    
+    if fq not in ['qfq','hfq','none']:
+        raise Exception('Wrong fq input! fq should be one of \[\'qfq\',\'hfq\',\'none\'\]:')
+    
+    if start < '1991-01-01':
+        raise Exception('Please check startday or endday')
+    
+    if fq == 'qfq':
+        data1 = pd.read_csv('D:\\stock_data\\xbdata\\xbdata\\'+freq+'\\'+code+'.csv')
+    
+    if fq == 'hfq' or fq == 'none':
+        data1 = pd.read_csv('D:\\stock_data\\xbdata\\xbdata\\'+freq+'\\'+fq+'\\'+code+'.csv')
+    
+    data = data1.copy()
+    df = data[(data.date>start)]
+    df = df.iloc[:index+1,:]
+    del df[df.columns[0]]
+    df.reset_index(inplace=True,drop=True)
+    df['return'] = df['close'].pct_change()
+    
+    return df 
+
+#获取指数行情，指数的code格式前面有index
+def get_benchmark_data(code,start='1991-01-01',end=today,freq='day',fq='qfq'):
+    benchmark = 'index' + code
+    data = get_k_data(benchmark,freq,start,end,fq)
+    return data
+
+
+#获取我自己搞的hs300基本面的数据
+#这里有一个问题就是季度怎么表示，我就简单就按照每季度最后一天，但这样子实际上肯定有问题，因为季报出的时间不一致。
+
+def get_hs300_basis(code_,start='1991-01-01',end=today):  
+    
+    def deal_time(str_):
+        year = str_[:4]
+
+        month = 3 * int(str_[5])
+
+        if month < 10:
+            month = '0' + str(month)
+
+        day = '30'
+        date =  year + '-' + str(month) + '-' + day
+        return date
+
+    if start < '1991-01-01' or end > today:
+        raise Exception('Please check startday or endday')
+        
+    
+    df = pd.read_csv('D:\\stock_data\\stock_basis\\data_basis.csv')
+    del df[df.columns[0]]
+    df.time = df.time.apply(deal_time) 
+    
+    df.code = df.code.apply(taf.deal_code)
+    df = df[(df.time>start) & (df.time<end)]
+    df = df[df.code == code_]
+    
+    return df 
+    
+    
+#此外我还有自己的macro_data的文件夹，定义一个获取宏观数据的函数
+
+def get_macro_data(content):    
+    file_path =  'D:\\stock_data\\macro_data'
+    dirs = os.listdir(file_path)
+    macro_list = []
+    # 输出所有文件和文件夹
+    for file in dirs:
+        a,b = os.path.splitext(file)
+        macro_list.append(a)
+    
+    if content in macro_list:
+        df = pd.read_csv(file_path + '\\' + content + '.csv')
+        return df
+    else:
+        print('No such data, pls input content in', macro_list)
+
+
+def handle_macro_data(df):   
+    
+    #最后几行的None可以iloc下，就不处理了。
+    #上述得到的macro_data有几个问题，一个是前面多了几行，这个其实没什么关系，iloc下就好，写一个改日期的就行
+    #另一个大问题是下面的数字是str型的，而不是float，导致不能计算
+    #主要处理这两个问题
+    
+    def Is_number(s):
+        
+        #提供判断+转变
+        #这个函数只能给Series使用，而不能给Dataframe使用
+        #给Series使用时候是Series中每个值，Dataframe则会变成行或者列(利用apply里面axis=0,1)
+        
+        try:
+            a = float(s)
+            return a
+        except (TypeError, ValueError):
+            return s
+    
+    for index,row in df.iterrows():
+        df.iloc[index,:] = row.apply(Is_number)
+  
+    #到这里只是把该变的数字变成float，并没有把整个Dataframe的dtype从object变成float,还是不能describe的
+    return df 
