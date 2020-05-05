@@ -1,0 +1,124 @@
+# 从各个数据来源获得的基本面数据结构不大一样
+# 我没有好的接口的情况下自己下载了部分基本面数据，进行处理
+# 因为数据量的限制（下载端有限制），我只能先下载沪深300成分股的基本面数据，也就是300个股票。
+# 下载的数据存放在 'D:\stock_data\stock_basis' 下
+
+
+import pandas as pd
+import os
+
+def file_name(file_dir):
+    L = []
+    b = []
+    for root, dirs, files in os.walk(file_dir):
+        for file in files:
+            if os.path.splitext(file)[1] == '.csv':
+                L.append(os.path.join(root , file))
+                b.append(file)
+        return L,b
+        
+ path = 'D:\stock_data\stock_basis'
+ csv_name,b = file_name(path)
+ 
+ #本打算尝试用下面的方法看看能否直接将所有数据获取，而后拼接，但是似乎命名上仍有点问题
+ for i in range(len(csv_name)):
+    locals()['data'+str(i)] = pd.read_csv(csv_name[i])
+    
+ #自己构建一个合理的DataFrame
+ data_test = data0.copy()
+ code_name = data_test.iloc[:300,:2]            #获取股票代码和名字
+ code_name.columns = ['code','name']
+ 
+ a = []
+ for i in range (2,10):                         #因为数据是2012年以后的，所以构建2012年以后的日期格式
+    for j in range(1,5):
+        time = '201'+str(i)+' '+str(j)+'季度'
+        a.append(time)
+ a = pd.DataFrame(a)
+ a.columns = ['time']
+ 
+ a['temp'] = 0                                  #添加一列temp方便合并
+ code_name['temp'] =0
+ data = code_name.merge(a,on='temp',how='outer')
+ del data['temp'] 
+ 
+ # 之后则是要考虑把基本面的数据给 “贴上去” 了。因为我下载的数据格式很乱，下面的代码就全是处理这个的。
+ 
+ '''
+ 拿来测试的例子
+ data_0 = data0.iloc[0,2:].T
+ for i in range(1,300):
+    temp = data0.iloc[i,2:].T
+    data_0 = pd.concat([data_0,temp],axis=0)
+ data_0 = data_0.values
+ data_0[data_0=='——'] = None
+ data_0.astype(float)
+ data['debt_to_asset_ratio'] = data_0
+ '''
+
+ 
+ def get_basis_data(path):
+    a = file_name(path)
+    for i in range(len(a)):
+        data0 = pd.read_csv(a[i])
+        
+        if data0.shape == (306,34) or data0.shape == (300,34):
+            data_0 = data0.iloc[0,2:].T
+            for j in range(1,300):
+                temp = data0.iloc[j,2:].T
+                data_0 = pd.concat([data_0,temp],axis=0)
+            
+            data_0 = data_0.values
+            data_0[data_0=='——'] = None
+            data_0.astype(float)
+ 
+            data[str(i)] = data_0
+        
+        else:    
+            pass
+            
+ get_basis_data(path)
+ columns = list(map(lambda x:x.split('.')[0],b))       #根据文件名得到column，因为文件名就是比如资产负债率等
+ columns.remove('industry')                            #行业数据格式有点问题，另外处理
+ c = ['code','name','time']
+ c.extend(columns)
+ data.columns = c                                     
+ industry = pd.read_csv(path+'\\industry.csv')
+ industry.columns = ['code','name','indus','main_business']
+ del industry['name']
+ data = data.merge(industry,on='code',how='left')      #至此完成基本面数据的合并和Dataframe的格式转换
+ 
+ data.to_csv(path+'\\'+'data_basis.csv')               #保存数据
+
+ '''
+ 如果要存到数据库中
+ 
+ from sqlalchemy import create_engine
+ engine = create_engine('mysql+pymysql:')
+ data.to_sql(name='data_basis', con=engine, chunksize=1000, if_exists='replace', index=None)
+ 
+ 如果要从数据库中读取
+ import pymysql
+ 
+ conn = pymysql.connect(host = 'localhost', 
+                       port = ,
+                       user = ,
+                       passwd = ,
+                       db = 'basis_data',
+                       charset = 'gbk') 
+
+ data = pd.read_sql('select * from data_basis',con = conn)
+ 
+ #也可以通过改变SQL语句获得部分数据，但我更喜欢在python中用Dataframe处理
+ '''
+ 
+ #最后得到的数据类型是这样子的:
+ '''
+     code        name       time        debt_ratio  capital_ratio  ..... 
+ 0   000001.SZ  平安银行   2012 1季度
+ 1   000001.SZ  平安银行   2012 2季度
+ 2   000001.SZ  平安银行   2012 3季度
+ ...
+ 
+ '''
+ 
