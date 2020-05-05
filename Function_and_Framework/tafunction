@@ -1,0 +1,853 @@
+import pandas as pd
+import numpy as np
+import math
+
+# 转换code格式
+# deal_code将股票代码转换为带交易所的六位字符
+
+def deal_code_with_suffix(s):
+    
+    s = str(s)
+    s = s.strip()
+    if (len(s)<6 and len(s)>0):
+        s = s.zfill(6) + 'SZ'
+    if len(s) == 6:
+        if s[0] == '0':
+            s = s + '.SZ'
+        if s[0] == '6':
+            s = s + '.SH'
+    return s 
+
+def deal_code(s):
+    
+    s = str(s)
+    s = s.strip()   #先去掉空格
+    
+    if (len(s)<6 and len(s)>0):
+        s = s.zfill(6) 
+    if len(s)>=6:    #默认大于6的时候是如600001.SH的格式或者600001.XSHG
+        s = s[0:6]
+    
+    return s 
+
+
+#均线部分
+#给定Series,简单计算均线
+def N_MA(Series,n):
+    
+    N_ma = None
+    N_ma = Series.rolling(window=n,center=False).mean()
+    #这个是python3以上的版本
+    
+    return N_ma
+
+#给定DataFrame，直接将均线合并
+def dfMA(df,price_type,n,column_name=''):
+    
+    if (price_type.strip() == ''):          #其实完全可以设置默认参数，主要为了防止按错空格什么的
+        price_type1 = 'close'
+    else:
+        price_type1 = price_type
+    
+    if (column_name.strip() == ''):
+        na = price_type1 + '_MA_' + str(n)
+    else:
+        na = column_name
+    
+    MA = pd.Series(df[price_type1].rolling(window=n,center=False).mean(),name=na)
+    df = df.join(MA)
+    
+    return df
+
+#EMA，滑动平均，近期数据的权重会更大
+def N_EMA(Series,n):
+
+    N_ema = None
+    N_ema = Series.ewm(span=n, min_periods = n, adjust=True, ignore_na=False).mean()
+    
+    return N_ema
+
+
+def dfEMA(df,price_type,n,column_name=''):
+    
+    if (price_type.strip() == ''):
+        price_type1 = 'close'
+    else:
+        price_type1 = price_type
+    
+    if (column_name.strip() == ''):
+        na = price_type1 + '_EMA_' + str(n)
+    else:
+        na = column_name
+    
+    EMA = pd.Series(df[price_type1].ewm(span=n,min_periods=n,adjust=True,ignore_na=False).mean(),name=na)
+    df = df.join(EMA)
+    
+    return df
+
+
+# KDJ
+def KDJ(df,n,m1=3,m2=3):
+    
+    #考虑n太大的影响:
+    if n > len(df):
+        raise ValueError('Not Enough Data for n_days in DataFrame')
+    else:
+        pass
+    
+    i = 0
+    RSV = 0.0000
+    ZB_l = []   #临时的temp数据
+    
+    #计算n内的最高价和最低价以得到RSV 
+    #n日RSV=（Cn－Ln）/（Hn－Ln）×100，公式中，Cn为第n日收盘价；Ln为n日内的最低价；Hn为n日内的最高价。
+   
+    yl = df.at[0,'low']
+    yh = df.at[0,'high']
+    
+    while i < n:
+        if yl > df.at[i,'low']:
+            yl = df.at[i,'low']
+        if yh < df.at[i,'high']:
+            yh = df.at[i,'high']
+        i = i + 1
+        RSV = (df.at[i,'close']-yl)/(yh-yl)*100.0000
+        ZB_l.append(RSV)
+    
+
+    
+    #这里跑完了以后,i就已经变成了n，之后窗口滚动：
+    
+    while  i < len(df):
+        j = 0
+        yl = df.at[i,'low']
+        yh = df.at[i,'high']
+        
+        while j < n:
+            if yl > df.at[i-j,'low']:
+                yl = df.at[i-j,'low']
+            if yh < df.at[i-j,'high']:
+                yh = df.at[i-j,'high']
+            j = j+1
+            
+        if yh != yl:
+            RSV = (df.at[i,'close']-yl)/(yh-yl)*100.0000
+        else:
+            RSV = 50
+        ZB_l.append(RSV)
+        i = i + 1
+        
+    rsv = pd.Series(ZB_l)
+    ZB = pd.Series(rsv,name = 'RSV')            #其实这里用一个数据就可以了，可能会占用更多地址
+    df = df.join(ZB)
+    
+    #计算KDJ 这里自己可以定义m1 m2的数据大小，也有默认参数
+    
+    #当日K值=2/3×前一日K值+1/3×当日RSV
+    #当日D值=2/3×前一日D值+1/3×当日K值
+    #J = 3K-2D
+    
+    i = 0
+    ZB_l = []
+    y = 1
+    
+    while i < len(df):
+        y = (rsv[i] + (m1-1)*y)/m1     #加权平均
+        ZB_l.append(y)
+        i = i + 1
+    
+    K = pd.Series(ZB_l)
+    ZB_K = pd.Series(K,name = 'K')
+    df = df.join(ZB_K)
+    
+    #以类似同样的方式计算其他的
+    
+    i = 0
+    ZB_l = []
+    y = 1
+    
+    while i < len(df):
+        y = (K[i] + (m2-1)*y)/m2     #加权平均
+        ZB_l.append(y)
+        i = i + 1
+    
+    D = pd.Series(ZB_l)
+    ZB_D = pd.Series(D,name = 'D')
+    df = df.join(ZB_D)
+    
+    J = 3*K - 2*D
+    
+    ZB_J = pd.Series(J,name='J')
+    df = df.join(ZB_J)
+    
+    return df
+    
+#标准差和布林通道
+def STDDEV(df,price_type,n):
+    
+    #实际计算时候price_type应该是return或者是什么，但是这里没定义，所以用的时候要用清楚
+    #不然会导致没标准化等问题，没有比较力
+    
+    if (price_type.strip() == ''):
+        price_type1 = 'close'
+    else:
+        price_type1 = price_type
+    
+    df = df.join(pd.Series(df[price_type1].rolling(window=n).std(),name=price_type1+'_STD_' + str(n)))
+    return df
+
+def N_STD(Series,n):
+    
+    df = Series.rolling(n).std()
+    return df 
+
+def BOLLING(df,n,ratio=2):
+    
+    '''
+    (1)中轨线=N日的移动平均线;
+　　(2)上轨线=中轨线+两倍的标准差;
+　　(3)下轨线=中轨线-两倍的标准差;
+    '''
+
+    MA = N_MA(df['close'],n)
+    std = N_STD(df['close'],n)
+    
+    B_Middle = pd.Series(MA,name='BOLL_M')
+    B_Upper = pd.Series((MA + ratio*std),name='BOLL_U')
+    B_Lower = pd.Series((MA - ratio*std),name='BOLL_L')
+    
+    df = df.join(B_Middle)
+    df = df.join(B_Upper)
+    df = df.join(B_Lower)
+    return df
+
+
+# RSI
+"""
+RSI指标的计算方法
+相对强弱指标RSI的计算公式有两种
+其一：
+假设A为N日内收盘价的正数之和，B为N日内收盘价的负数之和乘以（-1）,这样，A和B均为正，将A、B代入RSI计算公式，则
+RSI(N) = SMA(MAX(Close-LastClose,0),N)/SMA(ABS(Close-LastClose),N)*100
+其二：
+RS（相对强度）=N日内收盘价涨数和之均值÷N日内收盘价跌数和之均值
+RSI（相对强弱指标）=100－100÷（1+RS）
+
+
+好像还有方法，我这里就都写出来吧。
+"""
+
+def RSI_1(df,n):                     #该方法波动会大些
+    
+    abs_change = abs(df['close'] - df['close'].shift(1))
+    change = np.where(df['close']-df['close'].shift(1)>0,df['close']-df['close'].shift(1),0)
+    change = pd.Series(change)
+    
+    RSI = N_MA(change,n) / N_MA(abs_change,n) * 100
+    RSI = pd.Series(RSI,name='RSI'+'_'+str(n)+'_days')
+    
+    df = df.join(RSI)
+    
+    return df
+    
+def RSI_2(df,n):                       #这种的波动在震荡的时候会很接近50
+    
+
+    i = 0
+    RSI = []
+    
+    while i < n:
+        RSI.append(None)
+        i = i + 1
+    
+    while i < len(df):
+        up = 0
+        low = 0 
+        
+        j = i - n
+        while j < i:
+            if (df.at[j+1,'close'] - df.at[j,'close']) > 0:
+                up += (df.at[j+1,'close'] - df.at[j,'close'])
+            elif (df.at[j+1,'close'] - df.at[j,'close']) < 0:
+                low += (df.at[j,'close'] - df.at[j+1,'close'])
+            j += 1
+        
+        if low == 0:
+            RS = 9999999
+        else: 
+            RS = up/low
+            
+        rsi = 100 - 100/(1+RS)
+        RSI.append(rsi)
+        i += 1
+    
+    RSI = pd.Series(RSI,name='RSI'+'_'+str(n)+'_days')
+    df = df.join(RSI)
+     
+    
+    return df 
+                
+
+def RSI_3(df,n):                    #利用高点和低点变化的EMA计算
+
+    i = 0  
+    UpI = [0]  
+    DoI = [0]  
+    while i + 1 <= df.index[-1]:  
+        UpMove = df['high'].at[i + 1] - df['high'].at[i]
+        DoMove = df['low'].at[i] - df['low'].at[i + 1]
+        if UpMove > DoMove and UpMove > 0:  
+            UpD = UpMove  
+        else: UpD = 0  
+        UpI.append(UpD)  
+        if DoMove > UpMove and DoMove > 0:  
+            DoD = DoMove  
+        else: DoD = 0  
+        DoI.append(DoD)  
+        i = i + 1  
+    UpI = pd.Series(UpI)  
+    DoI = pd.Series(DoI)  
+    #PosDI = pd.Series(pd.ewma(UpI, span = n, min_periods = n - 1))  
+    PosDI = pd.Series(pd.Series.ewm(UpI, span = n, min_periods = n - 1, adjust=True).mean()) 
+    #NegDI = pd.Series(pd.ewma(DoI, span = n, min_periods = n - 1))  
+    NegDI = pd.Series(pd.Series.ewm(DoI, span = n, min_periods = n - 1, adjust=True).mean())  
+    RSI = pd.Series(PosDI*100.00 / (PosDI + NegDI), name = 'RSI'+'_'+str(n)+'_days')  
+    df = df.join(RSI)  
+    return df
+
+
+#MACD
+'''
+首先计算出快速移动平均线（即EMA1）和慢速移动平均线（即EMA2），以此两个数值，来作为测量两者（快慢速线）间的离差值（DIF）的依据，然后再求DIF的N周期的平滑移动平均线DEA（也叫MACD、DEM）线。
+以EMA1的参数为12日EMA2的参数为26日，DIF的参数为9日为例来看看MACD的计算过程
+
+1、计算移动平均值（EMA）
+12日EMA的算式为
+EMA（12）=前一日EMA（12）×11/13+今日收盘价×2/13
+26日EMA的算式为
+EMA（26）=前一日EMA（26）×25/27+今日收盘价×2/27
+2、计算离差值（DIF）
+DIF=今日EMA（12）－今日EMA（26）
+3、计算DIF的9日EMA
+根据离差值计算其9日的EMA，即离差平均值，是所求的MACD值。为了不与指标原名相混淆，此值又名
+DEA或DEM。
+今日DEA（MACD）=前一日DEA×8/10+今日DIF×2/10。
+计算出的DIF和DEA的数值均为正值或负值。
+用（DIF-DEA）×2即为MACD柱状图。
+
+'''
+
+def MACD(df,n_fast=12,n_slow=26,m=9):
+    
+    EMA_fast = N_EMA(df['close'],n_fast)
+    EMA_slow = N_EMA(df['close'],n_slow)
+    
+    DIFF = pd.Series(EMA_slow - EMA_fast,name='DIFF')
+    DEA = pd.Series(N_EMA(DIFF,m),name='DEA')
+    
+    MACD = 2 * (DIFF - DEA)
+    MACD = pd.Series(MACD,name='MACDdiff_'+str(n_fast)+'_'+str(n_slow))
+    
+    df = df.join(DIFF)
+    df = df.join(DEA)
+    df = df.join(MACD)
+    return df 
+
+#动量MTM
+'''
+以日MTM指标为例，其计算过程如下：
+MTM(N日)=C-CN
+式中，C=当日的收盘价
+CN=N日前的收盘价
+N为计算参数，一般起始参数为6
+'''
+
+def MTM(df,n):
+    mtm = pd.Series(df['close'].diff(n), name = 'Momentum_' + str(n)+'_days')  
+    df = df.join(mtm)  
+    return df
+
+
+#DMI
+'''
+DMI指标的计算方法和过程比较复杂，它涉及到DM、TR、DX等几个计算指标和+DI（即PDI，下同）、-DI（即MDI，下同）、ADX和ADXR等4个研判指标的运算。
+
+1、计算的基本程序
+以计算日DMI指标为例，其运算的基本程序主要为：
+（1）按一定的规则比较每日股价波动产生的最高价、最低价和收盘价，计算出每日股价的波动的真实波幅、上升动向值、下降动向值TR、+DI、-DI，在运算基准日基础上按一定的天数将其累加，以求n日的TR、+DM和DM值。
+（2）将n日内的上升动向值和下降动向值分别除以n日内的真实波幅值，从而求出n日内的上升指标+DI和下降指标-DI。
+（3）通过n内的上升指标+DI和下降指标-DI之间的差和之比，计算出每日的动向值DX。
+（4）按一定的天数将DX累加后平均，求得n日内的平均动向值ADX。
+（5）再通过当日的ADX与前面某一日的ADX相比较，计算出ADX的评估数值ADXR。
+
+2、计算的具体过程
+
+（1）计算当日动向值
+动向指数的当日动向值分为上升动向、下降动向和无动向等三种情况，每日的当日动向值只能是三种情况的一种。
+A、上升动向（+DM）
++DM代表正趋向变动值即上升动向值，其数值等于当日的最高价减去前一日的最高价，如果<=0 则+DM=0。
+B、下降动向（-DM）
+﹣DM代表负趋向变动值即下降动向值，其数值等于前一日的最低价减去当日的最低价，如果<=0 则-DM=0。注意-DM也是非负数。
+#再比较+DM和-DM，较大的那个数字保持，较小的数字归0。(这句话不懂，感觉有点问题)
+C、无动向
+无动向代表当日动向值为“零”的情况，即当日的+DM和﹣DM同时等于零。有两种股价波动情况下可能出现无动向。一是当当日的最高价低于前一日的最高价并且当日的最低价高于前一日的最低价，二是当上升动向值正好等于下降动向值。
+
+（2）计算真实波幅（TR）
+TR代表真实波幅，是当日价格较前一日价格的最大变动值。取以下三项差额的数值中的最大值（取绝对值）为当日的真实波幅：
+A、当日的最高价减去当日的最低价的价差。
+B、当日的最高价减去前一日的收盘价的价差。
+C、当日的最低价减去前一日的收盘价的价差。
+TR是A、B、C中的数值最大者
+
+（3）计算方向线DI
+方向线DI是衡量股价上涨或下跌的指标，分为“上升指标”和“下降指标”。在有的股市分析软件上，+DI代表上升方向线，-DI代表下降方向线。其计算方法如下：
++DI=（+DM÷TR）×100
+-DI=（-DM÷TR）×100
+要使方向线具有参考价值，则必须运用平滑移动平均的原理对其进行累积运算。以12日作为计算周期为例，先将12日内的+DM、-DM及TR平均化，所得数值分别为+DM12，-DM12和TR12，具体如下：
++DI（12）=（+DM12÷TR12）×100
+-DI（12）=（-DM12÷TR12）×100
+随后计算第13天的+DI13、-DI13或TR13时，只要利用平滑移动平均公式运算即可。（前11个位置没有数据）
+上升或下跌方向线的数值永远介于0与100之间。
+
+（4）计算动向平均数ADX
+依据DI值可以计算出DX指标值。其计算方法是将+DI和—DI间的差的绝对值除以总和的百分比得到动向指数DX。由于DX的波动幅度比较大，一般以一定的周期的平滑计算，得到平均动向指标ADX。具体过程如下：
+DX=(DI DIF÷DI SUM) ×100
+其中，DI DIF为上升指标和下降指标的差的绝对值
+DI SUM为上升指标和下降指标的总和
+ADX就是DX的一定周期n的移动平均值。
+和（3）中一样，从第n个位置开始有数据，为前n个DX的平均值AVE，后面位置按照EMA计算，EMA的初始值为AVE。由于ADX的计算基于DX，DX又基于+DI和-DI，所以实际上ADX在第 n1 + n2 - 1 个位置上才有第一个数值，其中 n1 为（3）中计算周期，n2 为（4）中计算周期。
+
+（5）计算评估数值ADXR
+在DMI指标中还可以添加ADXR指标，以便更有利于行情的研判。
+ADXR的计算公式为：
+ADXR=（当日的ADX+前n日的ADX）÷2
+n为选择的周期数（一般和（4）中周期n相同）
+注：通达信中ADXR的实现并不是（当日的ADX+前n日的ADX）÷ 2 这种形式，而是使用ADX的EMA，计算方法和（4）中从DX计算ADX完全相同。同理，这时ADXR实际上是从第 n1 + 2 * (n2 - 1) 个位置上才有第一个数值的，其中 n1 为（3）中计算周期，n2 为（4）（5）共同的计算周期。常见的周期选择是 n1 = 14，n2 = 6。
+
+'''
+
+def DMI(df,n):
+    
+    DM_po = np.where(df['high']-df['high'].shift(1)>0,df['high']-df['high'].shift(1),0)
+    DM_ne = np.where(df['low'].shift(1)-df['low']>0,df['low'].shift(1)-df['low'],0)
+    
+    DM_positive = np.where(DM_po>DM_ne,DM_po,0)
+    DM_negetive = np.where(DM_po<DM_ne,DM_ne,0)
+    
+    d1 = df['high']-df['low']
+    d2 = df['high']-df['close'].shift(1)
+    d3 = df['low']-df['close'].shift(1)
+    
+    TR = pd.concat([d1,d2,d3],axis=1).max(axis=1)
+                                                 #这里是否要处理停牌的股票？也即0值
+                                                 #我想了下，实际使用应该是要去掉空值，也即停牌的时间，让K线通顺的。因此这里不改了。
+                                                 #是初始数据应该做的锅，而不是我这个函数应该做的锅。
+    DM_p = DM_positive / TR * 100
+    DM_n = DM_negetive / TR * 100
+    
+    ADM_p = N_MA(DM_p,n)                         #我这种计算方法和上面不一样，但我感觉应该也有有效性
+    ADM_n = N_MA(DM_n,n)
+    
+    DM_diff = abs(ADM_p-ADM_n) 
+    DM_sum = ADM_p+ADM_n 
+                                                 #我怀疑公式有问题....
+    DX = DM_diff / DM_sum * 100                  #姑且这样子吧
+
+    
+    ADX = N_MA(DX,n)
+    ADXR = N_EMA(DX,n)
+    
+    ADM_p = pd.Series(ADM_p,name='ADM_p')
+    ADM_n = pd.Series(ADM_n,name='ADM_n')
+    ADX = pd.Series(ADX,name='ADX')
+    ADXR = pd.Series(ADXR,name='ADXR')
+    
+    df = df.join(ADM_p)
+    df = df.join(ADM_n)
+    df = df.join(ADX)
+    df = df.join(ADXR)
+    
+    return df
+
+
+#CCI
+'''
+公式
+编辑
+* CCI(n) = (TP－ MA) ÷MD 
+* TP = (最高价 + 最低价 + 收盘价) ÷ 3
+* MA = 最近n日(TP)价的累计和÷n
+* MD = 最近n日TP的标准差
+* 还有一种算法是： MD = 最近n日 (MA - TP)的绝对值的累计和 ÷ n 
+* 系统默认n为20
+'''
+
+def CCI_1(df, n):                                                              #这种算法需要的数据量少
+    TP = (df['high'] + df['low'] + df['close']) / 3  
+    MA = N_MA(TP,n)
+    MD = N_STD(TP,n)
+    CCI = pd.Series(100*(TP-MA)/MD, name = 'CCI_' + str(n)+'_days')  
+    df = df.join(CCI)  
+    return df
+
+def CCI_2(df,n):                                                               #两种算法的结果大部分时候是接近的，但也有时候差距挺大
+    TP = (df['high'] + df['low'] + df['close']) / 3  
+    MA = N_MA(TP,n)
+    MD = (abs(TP-MA)).rolling(window=n).mean()
+    CCI = pd.Series(100*(TP-MA)/MD, name = 'CCI_' + str(n)+'_days')  
+    df = df.join(CCI)  
+    return df
+    
+    
+#乖离率
+def BIAS(df,n):
+    
+    ma = N_MA(df['close'],n)
+    bias = 100 * (df['close']/ma - 1)
+    
+    bias = pd.Series(bias,name='BIAS_'+str(n)+'_days')
+    df = df.join(bias)
+    return df
+
+
+#EMV
+'''
+其计算公式如下:
+
+　　A=(今天最高+今天最低)/2
+　　B=(前一天最高+前一天最低)/2
+　　C=今天最高-今天最低
+　　EM=(A-B)xC-今天成交额
+　　EMV=累计n天的EM值                                         #这里我怀疑这个应该取均值
+  
+'''
+
+def EMV(df,n):                                                #我自己改了下计算方法
+    
+    A = (df['high'] + df['low']) / 2 
+    B = A.shift(1)
+    C = df['high'] - df['low']                                
+    EM = (A-B)*C/df['volume']                                 #这里为什么要除成交量，之后要不要标准化？
+    EMV = N_MA(EM,n)
+    EMV = pd.Series(EMV,name='EMV')
+    df = df.join(EMV)
+    return df                                    
+
+#这个指标只考虑了最高和最低价，同时除了一个成交量。不是很懂这个意思和怎么用。
+
+
+#PSY
+'''
+心理线（PSY）指标引是研究投资者对股市涨跌产生心理波动的情绪指标。
+它对股市短期走势的研判具有一定的参考意义。
+研究人员发现：一方面，人们的心理预期与市势的高低成正比，即市势升，心理预期也升，
+市势跌，心理预期也跌；
+另一方面，当人们的心理预期接近或达到极端的时候，
+逆反心理开始起作用，并可能最终导致心理预期方向的逆转。
+
+所谓的三根阳线，三根阴线改变人生？
+
+1.PSY=N日内上涨天数/N*100
+2.PSYMA=PSY的M日简单移动平均
+2.参数N设置为12日，参数M设置为6日
+
+PSY指标在25～75之间为常态分布。PSY指标主要反映市场心理的超买超卖，因此，当心理线指标在常态区域内上下移动时，一般应持观望态度。
+'''
+
+def PSY(df,n=12,m=6):
+    
+    up = df['close'] > (df['close'].shift(1))
+    psy = up.rolling(window=n).sum()/n
+    psy = pd.Series(psy,name='PSY')
+    df = df.join(psy)
+    
+    psyma = N_MA(psy,m)
+    psyma = pd.Series(psyma,name='PSYMA_'+str(n)+'_days_'+str(m)+'_MA')
+    df = df.join(psyma)
+    return df 
+
+#ARBR
+'''
+AR计算公式
+AR=((H - O)26天之和/(O - L)26天之和) * 100
+H：当天之最高价
+L：当天之最低价
+O：当天之开盘价
+
+
+BR计算公式
+BR=((H - PC)26天之和/(PC - L)26天之和) * 100
+H：当天之最高价；
+L：当天之最低价；
+PC：昨天之收盘价；
+
+一、AR指标的单独研判
+1、AR值以100为强弱买卖气势的均衡状态，其值在上下20之间。亦即当AR值在80——120之间时，属于盘整行情，股价走势平稳，不会出现大幅上升或下降。
+2、AR值走高时表示行情活跃，人气旺盛，而过高则意味着股价已进入高价区，应随时卖出股票。在实际走势中，AR值的高度没有具体标准，一般情况下AR值大于180时（有的设定为150），预示着股价可能随时会大幅回落下跌，应及时卖出股票。
+3、AR值走低时表示行情萎靡不振，市场上人气衰退，而过低时则意味着股价可能已跌入低谷，随时可能反弹。一般情况下AR值小于40（有的设定为50）时，预示着股价已严重超卖，可考虑逢低介入。
+4、同大多数技术指标一样，AR指标也有领先股价到达峰顶和谷底的功能。当AR到达顶峰并回头时，如果股价还在上涨就应考虑卖出股票，获利了结；如果AR到达低谷后回头向上时，而股价还在继续下跌，就应考虑逢低买入股票。
+二、 BR指标的单独研判
+1、BR值为100时也表示买卖意愿的强弱呈平衡状态。
+2、BR值的波动比AR值敏感。当BR值介于70—150之间（有的设定为80—180）波动时，属于盘整行情，投资者应以观望为主。
+3、当BR值大于300（有的设定为400）时，表示股价进入高价区，可能随时回档下跌，应择机抛出。
+4、当BR值小于30（有的设定为40）时，表示股价已经严重超跌，可能随时会反弹向上，应逢低买入股票。
+
+
+#但是我做出来的结果好像和这里的解释不同，所以不能信这里的玩意儿。还是得自己想。
+'''
+
+def ARBR(df,n=26):
+    
+    HO = df['high'] - df['open']
+    OL = df['open'] - df['low']
+    HC = df['high'] - df['close']
+    CL = df['close'] - df['low']
+    
+    AHO = N_MA(HO,n)
+    AOL = N_MA(OL,n)
+    AHC = N_MA(HC,n)
+    ACL = N_MA(CL,n)
+    
+    AR = AHO / AOL * 100
+    BR = AHC / ACL * 100
+    
+    AR = pd.Series(AR,name='AR_'+str(n)+'_days')
+    BR = pd.Series(BR,name='BR_'+str(n)+'_days')
+    
+    df = df.join(AR)
+    df = df.join(BR)
+    
+    return df
+    
+
+#ASI
+'''
+
+振动升降指标(ASI)，由威尔斯·王尔德（Welles Wilder）所创。ASI指标以开盘、最高、最低、收盘价与前一交易日的各种价格相比较作为计算因子。 
+与MACD、RSI、KDJ等指标一样，ASI也是技术分析最常见的参考指标之一。
+
+二．计算公式：
+1、 A=当天最高价—前一天收盘价 B=当天最低价—前一天收盘价 C=当天最高价—前一天最低价 D=前一天收盘价—前一天开盘价
+    A、B、C、D皆采用绝对值
+2、 E=当天收盘价—前一天收盘价F=当天收盘价—当天开盘价G=前一天收盘价—前一天开盘价E、F、G采用其±差值
+3、 X=E+1/2F+G
+4、 K=比较A、B二数值，选出其中最大值
+5、 比较A、B、C三数值：若A最大，则R=A+1/2B+1/4D若B最大，则R=B+1/2A+1/4D若C最大，则R=C+1/4D
+6、 L=3
+7、 SI=50*X/R*K/L
+8、 ASI=累计每日之 SI值
+
+
+三、应用法则
+1.ASI指标大部分时机都是和股价走势同步的，投资者仅能从众多股票中寻找少数产生领先突破的个股。
+若ASI指标领先股价，提早突破前次ASI高点或低点，则次一日之后的股价必然能突破前次高点或低点。
+2.股价由上往下，欲穿越前一波低点的密集支撑区时，于接近低点处，尚未确定股价是否会跌破支撑之际，
+如果ASI领先股价，提早一步，跌破相对股价的前一波ASI低点，则次一日之后，股价将随后跌破低点支撑区。
+投资人可以早一步卖出股票，减少不必要的损失。
+3.股价由下往上，欲穿越前一波的高点套牢区时，于接近高点处，尚未确定股价能否顺利穿越之际，
+如果ASI领先股价，提早一步，通过相对股价的前一波ASI高点，则次D S一日之后，股价必然能够顺利突破高点套牢区。
+股民可以把握ASI的领先作用，提前买入股票。
+4.股价走势一波比一波高，而ASI却未相对创新高点形成“顶背离”时，应卖出；
+股价走势一波比一波低，而ASI却未相对创新低点形成“底背离”时，应买进。
+5.ASI指标和OBV指标同样维持“N”字型的波动，并且也以突破或跌破“N”字型高低点，
+为观察ASI指标的主要方法。向上爬升的ASI，一旦向下跌破其前一次显著的N型转折点，一律可视为停损卖出的讯号；
+向下滑落的ASI，一旦向上突破其前一次的N型转折点，一律可视为果断买进的讯号。
+
+'''
+
+def ASI(df):                                                             #要去掉停牌的数据
+    A = abs(df['high'] - df['close'].shift(1))
+    B = abs(df['low'] - df['close'].shift(1))
+    C = abs(df['high'] - df['low'].shift(1))
+    D = abs(df['close'].shift(1) - df['open'].shift(1))
+
+    E = df['close'] - df['close'].shift(1)
+    F = df['close'] - df['open']
+    G = F.shift(1)
+    X = E + 0.5 * F + G
+    K = np.where(A>B,A,B)
+    
+    R = np.zeros(len(A))
+    for i in range(len(A)):                                             #这里一个很大的问题是：最大的一般就是C啊。。。
+        if (C[i]>=A[i] and C[i]>=B[i]):
+            R[i] = C[i] + 0.25 * D[i]
+        if (A[i]>=B[i] and A[i]>=C[i]):                                 #那我是不是应该把这个顺序改变下。
+            R[i] = A[i] + 0.5 * B[i] + 0.25 * D[i]
+        if (B[i]>=A[i] and B[i]>=C[i]):
+            R[i] = B[i] + 0.5 * A[i] + 0.25 * D[i]                      #这里的顺序就很重要
+    
+    L = 3
+    SI = 50 * X/R * K/L
+    ASI = SI.cumsum()
+    ASI = pd.Series(ASI,name='ASI')
+    
+    df = df.join(ASI)
+    return df
+
+
+#OBV
+'''
+今日OBV=昨天OBV+sgn×今天的成交量
+提示：sgn是符号的意思，sgn可能是+1，也可能是-1，这由下式决定。
+Sgn=+1 今收盘价≥昨收盘价
+Sgn=―1 今收盘价<昨收盘价
+成交量指的是成交股票的手数，不是成交金额。
+'''
+
+def OBV(df,n=12,m=24):  
+    i = 0  
+    OBV = [0]  
+    while i < df.index[-1]:  
+        if df.at[i + 1, 'close'] - df.at[i, 'close'] > 0:  
+            OBV.append(df.at[i + 1, 'volume'])  
+        if df.at[i + 1, 'close'] - df.at[i, 'close'] == 0:  
+            OBV.append(0)  
+        if df.at[i + 1, 'close'] - df.at[i, 'close'] < 0:  
+            OBV.append(-df.at[i + 1, 'volume'])  
+        i = i + 1  
+    OBV = pd.Series(OBV,name = 'OBV')  
+    df=df.join(OBV)
+    #OBV_ma = pd.Series(pd.rolling_mean(OBV, n), name = 'OBV_' + str(n))  
+    OBV_ma = pd.Series(pd.Series.rolling(OBV, n).mean(), name = 'OBV_' + str(n)+'_days')  
+    df = df.join(OBV_ma)  
+    #OBV_ma = pd.Series(pd.rolling_mean(OBV, m), name = 'OBV_' + str(m))  
+    OBV_ma = pd.Series(pd.Series.rolling(OBV, m).mean(), name = 'OBV_' + str(m)+'_days')
+    df = df.join(OBV_ma)  
+    return df
+
+
+# WR威廉指标
+'''
+W&R指标的计算主要是利用分析周期内的最高价、最低价及周期结束的收盘价等三者之间的关系展开的。
+以日威廉指标为例，其计算公式为：W%R=（Hn—C）÷（Hn—Ln）×100其中：
+【注】
+n：是交易者设定的交易期间（常用为30天）。
+C：第n日的最新收盘价。
+Hn：是过去n日内的最高价（如30天的最高价）。
+Ln：是过去n日内的最低价（如30天的最低价）。
+W%R是用百分比来计算，结果是介乎于0%至100%，如果在指定窗口内收盘价越接近最高价的水平（超买），
+结果越接近零，收盘价越接近最低价（超卖），结果越接近100%
+'''
+
+def WR(df,n=30):    #其实说白了就是看现在的价格和过去的高点接近不接近
+    
+    Hn = df['close'].rolling(window=n).max()
+    Ln = df['close'].rolling(window=n).min()
+    
+    WR = (Hn - df['close'])/(Hn-Ln) * 100
+    WR = pd.Series(WR,name='WR_'+str(n)+'_days')
+    
+    df = df.join(WR)
+    return df
+    
+
+#TRIX
+'''
+1.TR=收盘价的N日指数移动平均的N日指数移动平均的N日指数移动平均
+2.TRIX=(TR-昨日TR)/昨日TR*100
+3.MATRIX=TRIX的M日简单移动平均
+4.参数N设为12，参数M设为20
+
+1、当TRIX线一旦从下向上突破TRMA线，形成“金叉”时，预示着股价开始进入强势拉升阶段，投资者应及时买进股票。
+2、当TRIX线向上突破TRMA线后，TRIX线和TRMA线同时向上运动时，预示着股价强势依旧，投资者应坚决持股待涨。
+3、当TRIX线在高位有走平或掉头向下时，可能预示着股价强势特征即将结束，投资者应密切注意股价的走势，一旦K线图上的股价出现大跌迹象，投资者应及时卖出股票。
+4、当TRIX线在高位向下突破TRMA线，形成“死叉”时，预示着股价强势上涨行情已经结束，投资者应坚决卖出余下股票，及时离场观望。
+5、当TRIX线向下突破TRMA线后，TRIX线和TRMA线同时向下运动时，预示着股价弱势特征依旧，投资者应坚决持币观望。
+6、当TRIX线在TRMA下方向下运动很长一段时间后，并且股价已经有较大的跌幅时，如果TRIX线在底部有走平或向上勾头迹象时，一旦股价在大的成交量的推动下向上攀升时，投资者可以及时少量地中线建仓。
+7、当TRIX线再次向上突破TRMA线时，预示着股价将重拾升势，投资者可及时买入，持股待涨。
+8、TRIX指标不适用于对股价的盘整行情的研判。
+'''
+
+def TRIX(df,n=12,m=20):
+    em1 = N_EMA(df['close'],n)
+    em2 = N_EMA(em1,n)
+    
+    TR = N_EMA(em2,n)
+    TRIX = 100 * (TR - TR.shift(1)) / TR.shift(1)
+    MATRIX = N_MA(TRIX,m)
+    
+    TRIX = pd.Series(TRIX,name = 'TRIX_'+str(n)+'_days')
+    MATRIX = pd.Series(MATRIX,name = 'MATRIX'+str(m)+'_days')
+    
+    df = df.join(TRIX)
+    df = df.join(MATRIX)
+    return df
+
+
+#VR
+'''
+1.AV=N日内股价上升日成交量；AVS=N日内ΣAV
+2.BV=N日内股价下跌日成交量；BVS=N日内ΣBV
+3.CV=N日内股价平盘日成交量；CVS=N日内ΣCV
+4.VR=（AVS+1/2CVS）/（BVS+1/2CVS）
+5.MAVR=VR的M日简单移动平均
+6.参数N为24，参数M为6
+
+VR指标的理论取值在[0，+∞），可将此区域分为四个部分：
+低价区域（40～70）、安全区域（80～150）、获利区域（160～350）和警戒区域（350以上）。
+'''
+def VR(df,n=24,m=6):                                                  #感觉很多指标要去掉新股刚开始的时段
+ 
+
+    AVm = (df['close'] > df['close'].shift(1)) * df['volume']
+    BVm = (df['close'] < df['close'].shift(1)) * df['volume']
+    CVm = (df['close'] == df['close'].shift(1)) * df['volume']
+    
+    AV = AVm.rolling(window=n).sum()
+    BV = BVm.rolling(window=n).sum()
+    CV = CVm.rolling(window=n).sum()
+    
+    VR = 100 * (AV + 0.5 * CV) / (BV + 0.5 * CV)
+    MAVR = N_MA(VR,m)
+    
+    VR = pd.Series(VR,name='VR_'+str(n)+'_days')
+    MAVR = pd.Series(MAVR,name='MAVR_'+str(m)+'_days')
+    
+    df = df.join(VR)
+    df = df.join(MAVR)
+    return df 
+    
+
+#BBI
+'''
+1. 3日均价=3日收盘价之和/3
+2. 6日均价=6日收盘价之和/6
+3. 12日均价=12日收盘价之和/12
+4. 24日均价=24日收盘价之和/24
+5. BBI=（3日均价+6日均价+12日均价+24日均价）/4
+
+1.股价位于BBI上方，视为多头市场。
+2.股价位于BBI下方，视为空头市场。
+3.下跌行情中，若当日收盘价跌破BBI曲线，表示多转空，为卖出信号。
+4.上涨行情中，若当日收盘价升越BBI曲线，表示空转多，为买入信号。
+5.上升回档时，BBI为支持线，可以发挥支撑作用。
+6.下跌反弹时，BBI为压力线，可以发挥阻力作用。
+'''
+
+def BBI(df):                #这还是个EMA的感觉，只是权重不大一样
+    
+    BBI = (N_MA(df['close'],3) + N_MA(df['close'],6) + N_MA(df['close'],12) + N_MA(df['close'],24)) / 4
+    BBI = pd.Series(BBI,name='BBI')
+    
+    df = df.join(BBI)
+    return df
+    
+
+#EOM
+'''
+简易波动指标(EOM)是基于成交量的震荡指标。旨在衡量价格和成交量之间的关系，
+并将该关系反映在正值和负值之间波动的震荡指标。EOM波动在零线之上和之下。
+这是为了量化价格变动的“简易”性。基本理解为，当EOM处于积极的领域时，价格相对简易地上涨。
+当EOM是负值时，价格相对简易地下降。 
+'''
+
+def EOM(df, n=20):                    
+    EoM = (df['high'].diff(1) + df['low'].diff(1)) * (df['high'] - df['low']) / (2 * df['volume'])     #算出来的数据会相对较小
+    Eom_ma = pd.Series(N_MA(EoM,n), name = 'MAEoM_' + str(n)+'_days')  
+    df = df.join(Eom_ma)  
+    return df
+
+
+
+
+
