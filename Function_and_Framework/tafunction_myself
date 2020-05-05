@@ -1,0 +1,100 @@
+import pandas as pd
+import numpy as np
+import math
+
+#简化K线的函数,但是会丧失时效
+def find_high_low(df):
+    
+    '''
+    我这里完全没有考虑时间的问题，只找到一个序列连续变化时候的阶段最大值和最小值。
+    简化K线，减去连续变化的值
+    '''
+    
+    a = []
+    a.append(df.close[0])
+    index = [0]
+    
+    up_down = np.sign(df.close-df.close.shift(1))
+    
+    for i in range(len(df)-3):
+        if up_down[i+2] != up_down[i+1]:
+            a.append(df.close[i+1])
+            index.append(i+1)
+        i = i + 1
+    
+    A = pd.Series(a)
+    B = pd.Series(index)
+    return A,B
+    
+
+'''
+判断是否在高点
+
+怎么样算是高点？
+比过去n=250天的p90%分位置都要高，就可以算是高点
+设置一个比例q，使得30天内p%都满足条件，则认为m=30天内整体都满足这个条件
+
+那么是否要最后一天仍在高点呢？我这儿没有设置
+'''
+
+
+def If_high(df,m=30,n=250,p=0.9,q=0.9):    #判断最近30天是否在过去250天的高位
+    
+    df_perc = df['close'].rolling(window=n).quantile(p)
+    df_if_high = df['close'] > df_perc
+    df_sign = df_if_high.rolling(window=m).sum()
+    df_posi = df_sign > (m*q)
+    
+    df_posi = pd.Series(df_posi,name='If_high')
+    df = df.join(df_posi)
+    return df
+    
+    
+'''
+判断是否在低点
+
+怎么样算是低点？
+比过去n=250天的p10%分位置都要低，就可以算是低点
+设置一个比例q，使得30天内p%都满足条件，则认为m=30天内整体都满足这个条件
+
+那么是否要最后一天仍在低点呢？我这儿没有设置
+'''
+
+
+def If_low(df,m=30,n=250,p=0.1,q=0.9):    #判断最近30天是否在过去250天的高位
+    
+    df_perc = df['close'].rolling(window=n).quantile(p)
+    df_if_low = df['close'] < df_perc
+    df_sign = df_if_low.rolling(window=m).sum()
+    df_posi = df_sign > (m*q)
+    
+    df_posi = pd.Series(df_posi,name='If_low')
+    df = df.join(df_posi)
+    return df
+
+
+'''
+判断是否在震荡
+怎么样算是震荡？
+震荡不需要和过去比较，本身就是和自己比较
+只要你的时间段m天内的波动在一定范围内
+暂时想到两种方法：
+第一种：最值比例，比如最大值/最小值<p,也就是保证不创出一个新高或者新低
+第二种：均值+标准差倍数
+第二种方法好的地方在可以适应不同波动率的股票，但是会导致一个高波动率的股票，可能明明不是在震荡，但又以为是震荡。
+那么两种方法可以姐合吗
+可以将p设置成标准差的函数,但这个导致一个很严重的问题——满足条件的时候是因为标准差的增大，而不是因为震荡。
+所以我直接将其设定为一个定值p，60天内只能波动20%
+'''
+
+def If_vibrate(df,m=60,p=0.2):
+    
+    df_high = df['close'].rolling(m).max()
+    df_low = df['close'].rolling(m).min()
+
+    df_high_low = df_high / df_low - 1 
+    df_posi = df_high_low < p
+    
+    df_posi = pd.Series(df_posi,name='If_vibrate')
+    df = df.join(df_posi)
+    return df
