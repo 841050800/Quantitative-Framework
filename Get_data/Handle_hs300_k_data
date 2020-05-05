@@ -1,0 +1,59 @@
+'''
+这个文件是当初我随手下了沪深300成分股的K线数据时，
+因为下载源的限制（下载数据量有大小限制），我只能2年2年的数据下载，没法一次下载全部。
+因此我想把它们都放到一个Dataframe里面
+同时处理下格式之类的，因此有了这个文件
+没啥大用，用完一次之后就是处理好的数据文件了，基本没有再用它的可能。
+'''
+
+import os
+import pandas as pd
+
+def file_name(file_dir):
+    L = []
+    for root, dirs, files in os.walk(file_dir):
+        for file in files:
+            if os.path.splitext(file)[1] == '.csv':
+                L.append(os.path.join(root , file))
+        return L
+
+def get_file(file_dir):
+    a = file_name(file_dir)
+    
+    for i in range(len(a)):
+        data = pd.read_csv(a[i],low_memory=False)
+        data.dropna(axis=0,how='all',inplace=True)
+        data.dropna(axis=1,how='all',inplace=True)
+        
+        
+        date = data[data.columns[0]].dropna()
+        code_name = data.iloc[0,:].dropna()
+        code_name.drop_duplicates(inplace=True)
+        
+        date = pd.DataFrame(date)
+        date.columns = ['date']
+        
+        code_name = pd.DataFrame(code_name)
+        code_name.reset_index(inplace=True)
+        code_name.columns = ['code','name']
+        
+        date['temp'] = 0
+        code_name['temp'] = 0
+        data_hs300 = pd.merge(code_name,date,on='temp')
+        del data_hs300['temp']
+        
+        data.columns = b
+        
+        data_mer = data.iloc[2:,1:10]
+        for m in range(1,300):
+            data_temp = data.iloc[2:,m*9+1:m*9+10]
+            data_mer = pd.concat([data_mer,data_temp],axis=0,sort=True,ignore_index=True)
+        
+        data_good = pd.concat([data_hs300,data_mer],axis=1)
+        d = ['code','name','date','open','high','low','close','return','exchange','Isopen','Isup','Islow']
+        data_good = data_good[d]
+        
+        data_good.to_csv(a[i]+'.csv')
+        
+path = 'D:\stock_data\stock_k_data'
+get_file(path)
