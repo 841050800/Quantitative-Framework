@@ -1,0 +1,315 @@
+'''
+提供画出差不多类似于同花顺软件的画图函数
+但是不能拖动，只能一次性画出，效果还是差一些的
+如果要把图片放在不同窗口，而不是不同子图，可能需要用tkinter进行布局
+这个就复杂许多了，暂且做不来
+'''
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import tafunction as taf                                  #我计算函数技术面指标的py文件
+import matplotlib as mpl
+from mpl_finance import candlestick_ohlc
+
+plt.rcParams['font.sans-serif']=['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
+
+# 这些画图函数里面很多参数都是调整起来的，比如文字大小，画框大小，颜色等等
+# 而在函数参数中并没有给这些调整的机会，所以使用时候可能会出现某些大小不合理的情况
+# 如果要避免这种情况，就直接用draw_all来画，这样子是默认这个文件里面调整好的大小
+
+# 数据里会有一个日期和一个index，把日期取出来当作date_tickers，设置一个函数，使得index能对应到date_tickers
+
+def date_format(x,pos=None):
+    if x<0 or x>=len(date_tickers):
+        return ''
+    else:
+        return date_tickers[int(x)]
+     
+  
+'''
+在ax区绘图，使用dataframe,图片标题默认代码，默认画2条均线
+我试图用循环去画命名和画均线，发现用locals()[]的方法写的话变量会无法调用
+虽然数据确实能拿出来，如果不是写在函数内就可以
+
+'''
+# 画蜡烛图K线
+def Draw_K(ax,df,n=2):
+    #先处理df的数据，为了不影响df，搞个备份
+    df2 = df.copy()
+    date_tickers = df2.date
+    del df2['date']
+    df2['date'] = df2.index
+    data_ = df2.reindex(columns=['date','open','high','low','close']) 
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(8))                   #x轴分成几等分 
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format))     #将x轴坐标格式转换
+    
+    candlestick_ohlc(ax, data_.values, width=.6, colorup='#ff1717', colordown='#53c156')    #颜色可以自己定义
+    
+    #计算均线,画均线
+    ma5=pd.Series.rolling(df2.close, 5).mean()   #股票收盘价5日平均线 
+    ma10=pd.Series.rolling(df2.close, 10).mean() #股票收盘价10日平均线 
+    ax.plot(data_.date.values,ma5,label='MA5', linewidth=1.5)
+    ax.plot(data_.date.values,ma10,label='MA10', linewidth=1.5)
+    
+    # 计算平均，简单写的话也可以利用自己编的MA函数，但是也差不多，就直接写了
+    if n>=3:
+        ma20=pd.Series.rolling(df2.close, 20).mean() #股票收盘价20日平均线 
+        ax.plot(data_.date.values,ma20,label='MA20', linewidth=1.5)
+    if n>=4:
+        ma30=pd.Series.rolling(df2.close, 30).mean() #股票收盘价30日平均线 
+        ax.plot(data_.date.values,ma30,label='MA30', linewidth=1.5)
+    if n>=5:
+        ma60=pd.Series.rolling(df2.close, 60).mean() #股票收盘价60日平均线 
+        ax.plot(data_.date.values,ma60,label='MA60', linewidth=1.5)
+    if n>=6:
+        ma120=pd.Series.rolling(df2.close, 120).mean() #股票收盘价120日平均线 
+        ax.plot(data_.date.values,ma120,label='MA120', linewidth=1.5)  
+    
+    ax.grid()
+    ax.set_ylabel('价格',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')
+    ax.legend(fontsize=15,shadow='True',loc=0,facecolor='white') # 显示图中右上角的提示信息。
+
+    return ax
+
+
+#画成交量
+def Draw_VOL(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+        
+    df2=df.copy()
+    date_tickers = df2.date.values
+    v1=pd.Series.rolling(df2.volume, 5).mean() #5日平均线 
+    v2=pd.Series.rolling(df2.volume, 10).mean() #10日平均线 
+    i1=df2.index[df2.close>=df2.open]
+    df2['vol1']=df2.volume[i1]
+    i2=df2.index[df2.close<df2.open]
+    df2['vol2']=df2.volume[i2]   
+    
+    rsiCol = '#FFFF00' 
+    posCol = 'white'
+    ax.plot(df2.index.values, v1, rsiCol, linewidth=2,label="VMA5",alpha=0.8)
+    ax.plot(df2.index.values, v2, posCol, linewidth=2,label="VMA10",alpha=0.8)
+    
+    #ax1.bar(df2.date.values,df2.volume.values, facecolor=g.uvg, alpha=.8)
+    ax.bar(df2.index.values,df2.vol1.values, width=0.3,edgecolor='red', alpha=1,fill=False)            #这里需要把width调整下
+    ax.bar(df2.index.values,df2.vol2.values, width=0.3,edgecolor='skyblue', facecolor='skyblue',alpha=0.6,fill=True)          
+    
+    #plot是按照两点连线，bar是按照画矩形的方式
+    ax.yaxis.label.set_color('blue')
+    
+    ax.set_ylabel('成交量',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')   
+    ax.legend(fontsize=15,shadow='True',loc=0,facecolor='white') # 显示图中右上角的提示信息。 
+    ax.patch.set_color('#404040')
+    ax.grid(False)
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+    plt.tick_params(labelsize=15)
+    ax.set_title('成交量',fontsize=30)
+    
+    return ax
+ 
+ 
+ #画KDJ
+ def Draw_KDJ(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    df2 = df.copy()
+    date_tickers = df2.date.values
+    df2 = taf.KDJ(df2,9,3,3)   #默认KDJ参数是9，3，3
+    
+    ax.plot(df2.index.values,df2.K,color='black',linewidth=2,label='K')
+    ax.plot(df2.index.values,df2.D,color='red',linewidth=2,label='D')
+    ax.plot(df2.index.values,df2.J,color='blue',linewidth=2,label='J',alpha=0.9)
+    
+    ax.grid(True)
+
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+    ax.set_ylabel('KDJ',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')
+    plt.xlabel('date')
+    ax.legend(fontsize=15,shadow='True',loc=0,facecolor='white')
+
+    ax.set_title('KDJ',fontsize=30)
+    return ax 
+ 
+ 
+ #画RSI
+ def Draw_RSI(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    df2 = df.copy()
+    date_tickers = df2.date.values
+    #默认三条RSI 参数是6和12，24天
+    df2 = taf.RSI_3(df2,6)   
+    df2 = taf.RSI_3(df2,12)
+    df2 = taf.RSI_3(df2,24)   
+    
+    ax.plot(df2.index.values,df2.RSI_6_days,color='black',linewidth=2,label='RSI_6_days')
+    ax.plot(df2.index.values,df2.RSI_12_days,color='red',linewidth=2,label='RSI_12_days')
+    ax.plot(df2.index.values,df2.RSI_24_days,color='blue',linewidth=2,label='RSI_24_days',alpha=0.9)
+    
+    ax.grid(True)
+
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+    ax.set_ylabel('RSI',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')
+    plt.xlabel('date',fontsize=15)
+    ax.legend(fontsize=15,shadow='True',loc=0,facecolor='white')
+    
+    ax.set_title('RSI',fontsize=30)
+    return ax 
+
+#MACD
+'''
+这个是没有双色的版本
+
+def Draw_MACD(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    df2 = df.copy()
+    date_tickers = df2.date.values
+    
+    df2 = taf.MACD(df2)
+    ax.plot(df2.index.values,df2.DIFF,color='white',linewidth=1,label='DIFF')
+    ax.plot(df2.index.values,df2.DEA,color='yellow',linewidth=1,label='DEA')
+    ax.bar(df2.index.values,df2.MACDdiff_12_26,color='green',width=1,alpha=0.7,label='MACD')
+    
+    ax.grid(True)
+    ax.patch.set_facecolor('gray')
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+    plt.ylabel('MACD',rotation='horizontal',fontsize=15)
+    plt.xlabel('date',fontsize=15)
+    plt.legend(fontsize=15)
+    
+    return ax 
+
+'''
+
+#双色版本
+
+def Draw_MACD(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    df2 = df.copy()
+    date_tickers = df2.date.values
+    
+    df2 = taf.MACD(df2)
+    
+    
+    ax.plot(df2.index.values,df2.DIFF,color='white',linewidth=1,label='DIFF')
+    ax.plot(df2.index.values,df2.DEA,color='yellow',linewidth=1,label='DEA')
+    
+    i1=df2.index[df2.MACDdiff_12_26 >= 0]   #这里一定要用向量化的计算，而不要写循环，不然巨慢
+    df2['MACD1']=df2.MACDdiff_12_26[i1]
+    i2=df2.index[df2.MACDdiff_12_26 < 0]
+    df2['MACD2']=df2.MACDdiff_12_26[i2]   
+    
+    ax.bar(df2.index.values,df2.MACD2,color='green',width=1,alpha=0.7,label='MACD')
+    ax.bar(df2.index.values,df2.MACD1,color='red',width=1,alpha=0.7,label='MACD')
+    
+    ax.grid(True)
+    ax.patch.set_facecolor('gray')
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+    ax.set_ylabel('MACD',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')
+    plt.xlabel('date',fontsize=15)
+    ax.legend(fontsize=15,shadow='True',loc=0,facecolor='white')
+
+    ax.set_title('MACD',fontsize=30)
+    return ax 
+
+#布林线，画的时候直接和K一起画，设置同一个ax即可
+def Draw_Boll(ax,df):
+    
+    def date_format(x,pos=None):
+        if x<0 or x>=len(date_tickers):
+            return ''
+        else:
+            return date_tickers[int(x)]
+    
+    df2 = df.copy()
+    date_tickers = df2.date.values
+    
+    df2 = taf.BOLLING(df2,n=20)
+    
+    ax.plot(df2.index.values,df2.BOLL_U,color='red',lw=1,label='Bolling_Upper')
+    ax.plot(df2.index.values,df2.BOLL_M,color='blue',lw=1,label='Bolling_Middel')
+    ax.plot(df2.index.values,df2.BOLL_L,color='green',lw=1,label='Bolling_Lower')
+    
+    ax.grid(True)
+    ax.patch.set_facecolor('white')
+    ax.yaxis.set_major_locator(mpl.ticker.MaxNLocator(8))
+    ax.xaxis.set_major_formatter(mpl.ticker.FuncFormatter(date_format)) 
+    
+
+    #plt.ylabel('Bolling',rotation='horizontal',fontsize=15,verticalalignment='center',horizontalalignment='right')
+    plt.xlabel('date',fontsize=15)
+    ax.legend(fontsize=15,shadow='True',loc=1,facecolor='white')
+    
+    return ax
+
+#设置一个函数，直接将上述全部图都画出来
+def Draw_all(df):
+    
+    code = df.code[0]
+    
+    plt.figure(figsize=(40,32))
+    ax1 = plt.subplot2grid((58,20), (0, 0), colspan=20,rowspan=30)     #在5行5列的位置中0，1的位置开始，占据3行
+    ax2 = plt.subplot2grid((58,20), (32, 0), colspan=20,rowspan=5)
+    ax3 = plt.subplot2grid((58,20), (39, 0), colspan=20,rowspan=5)
+    ax4 = plt.subplot2grid((58,20), (46, 0), colspan=20,rowspan=5)
+    ax5 = plt.subplot2grid((58,20), (53, 0), colspan=20,rowspan=5)
+    
+
+    
+    plt.suptitle(code,fontsize=50)
+
+    Draw_MACD(ax3,df)
+    Draw_KDJ(ax4,df)
+    Draw_RSI(ax5,df)
+    Draw_K(ax1,df)
+    Draw_Boll(ax1,df)
+    Draw_VOL(ax2,df)
+    
+    plt.show()
+    
