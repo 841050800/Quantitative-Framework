@@ -1,0 +1,427 @@
+#这里做一点简单的形态识别
+
+import pandas as pd
+import numpy as np
+import math
+
+data = pd.read_csv('D:\\stock_data\\xbdata\\xbdata\\day\\002074.csv')  #测试用数据，随便选的
+
+
+'''
+先做单K线识别的内容
+
+其实有两种做法，一种是直接识别，比如今天是哪一类，另一种方法是一种种识别。
+
+我这里做的是一种种识别，因为想法是暂且以某类特定形态做信号的想法。
+
+主体 = 收盘价 - 开盘价
+
+if 主体 > 0: 
+
+    上影线 = 最高价 - 收盘价
+    
+    下影线 = 开盘价 - 最低价
+else:
+
+    上影线 = 最高价 - 开盘价
+    
+    下影线 = 收盘价 - 最低价
+'''
+
+
+'''
+计算主体，上影线，下影线
+'''
+def calc_K(df):
+    mainpart = df.close - df.open
+    
+    upper_shadow = np.where(mainpart > 0, df.high - df.close, df.high - df.open)
+    lower_shadow = np.where(mainpart > 0, df.open - df.low,df.close - df.low)
+    
+    return mainpart,upper_shadow,lower_shadow
+    
+'''
+每个函数对应的图像类型
+'''
+
+#防止对应不起来，设置一个函数，会给出一个字典，里面是函数名和对应的形态
+def get_K_type():
+    
+    a = {'K_single_1':'光脚阳线',
+         'K_single_2':'光头阳线',
+         'K_single_3':'大阳线',
+         'K_single_4':'光脚阴线',
+         'K_single_5':'光头阴线',
+         'K_single_6':'大阴线',
+         'K_single_7':'下影线十字星',
+         'K_single_8':'上影线十字星',
+         'K_single_9':'双向十字星',
+         'K_combination_1':'阳吃阴',
+         'K_combination_2':'阴吃阳',
+         'K_combination_3':'红三兵',
+         'K_combination_4':'乌鸦三飞',
+        }
+    return a
+    
+'''
+1.光脚阳线
+
+几乎没有下影线，上影线长
+个人计算方法：
+
+    主体 > 0 
+    日内上涨0.5%以上（防止和十字形态混淆）
+    上影线 > 主体 * n  暂定 n=1
+    下影线 < m *（主体+上影线） 暂定 m=0.1
+
+'''
+
+def K_single_1(df,n=1,m=0.1,limit=0.005):
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    no_lower_shadow_positive_K = np.where((daily_return > limit) * 1 + 
+                                          (n*mainpart < upper_shadow) * 1 +
+                                          (lower_shadow < m*(mainpart + upper_shadow)) * 1 == 3,
+                                          1,0)
+            
+    no_lower_shadow_positive_K = pd.Series(no_lower_shadow_positive_K,name='K_single_1')
+    
+    df = df.join(no_lower_shadow_positive_K)
+    return df     
+
+
+'''
+2.光头阳线/类似锤子线和吊颈线
+
+几乎没有上影线，下影线长
+个人计算方法：
+
+    主体 > 0 
+    日内上涨0.5%以上（防止和十字形态混淆）
+    下影线 > 主体 * n   暂定n=1
+    上影线 < m *（主体+下影线） 暂定m=0.1
+
+'''
+
+def K_single_2(df,n=1,m=0.1,limit=0.005):                             #可以添加参数来调节
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    no_upper_shadow_positive_K = np.where((daily_return > limit) * 1 + 
+                                          (n*mainpart < lower_shadow) * 1 +
+                                          (upper_shadow < m*(mainpart + lower_shadow)) * 1 == 3,
+                                          1,0)
+            
+    no_upper_shadow_positive_K = pd.Series(no_upper_shadow_positive_K,name='K_single_2')
+    
+    df = df.join(no_upper_shadow_positive_K)
+    return df     
+
+
+'''
+3.大阳线
+
+几乎没有上影线和下影线
+要足够的长
+
+个人计算方法：
+
+    主体 > 0 
+    日内日内涨幅大于limit limit=0.03    #实际上这里可能要根据波动率来计算会更好些
+    下影线 < 主体 * n  n=0.2
+    上影线 < 主体 * m  m=0.2
+    
+
+'''
+
+def K_single_3(df,n=0.2,m=0.2,limit=0.03):                             #可以添加参数来调节
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    big_positive_K = np.where((daily_return > limit) * 1 + 
+                                          (n*mainpart > lower_shadow) * 1 +
+                                          (m*mainpart > upper_shadow) * 1 == 3,
+                                          1,0)
+            
+    big_positive_K = pd.Series(big_positive_K,name='K_single_3')
+    
+    df = df.join(big_positive_K)
+    return df     
+
+
+'''
+4.光脚阴线
+
+几乎没有下影线，上影线长
+个人计算方法：
+
+    主体 < 0 
+    下跌0.5%以上（防止和十字形态混淆）
+    上影线 > 主体 * n  暂定 n=1
+    下影线 < m *（主体+上影线） 暂定 m=0.1
+
+'''
+
+def K_single_4(df,n=1,m=0.1,limit=-0.005):
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    no_lower_shadow_negetive_K = np.where((daily_return < limit) * 1 + 
+                                          (n*abs(mainpart) < upper_shadow) * 1 +
+                                          (lower_shadow < m*(upper_shadow+abs(mainpart))) * 1 == 3,
+                                          1,0)
+            
+    no_lower_shadow_negetive_K = pd.Series(no_lower_shadow_negetive_K,name='K_single_4')
+    
+    df = df.join(no_lower_shadow_negetive_K)
+    return df     
+
+        
+'''
+5.光头阴线
+
+几乎没有上影线，下影线长
+个人计算方法：
+
+    主体 < 0 
+    下跌0.5%以上（防止和十字形态混淆）
+    下影线 > 主体 * n  暂定 n=1
+    上影线 < m *（主体+下影线） 暂定 m=0.1
+
+'''
+
+def K_single_5(df,n=1,m=0.1,limit=-0.005):
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    no_upper_shadow_negetive_K = np.where((daily_return < limit) * 1 + 
+                                          (n*abs(mainpart) < lower_shadow) * 1 +
+                                          (upper_shadow < m*(lower_shadow+abs(mainpart))) * 1 == 3,
+                                          1,0)
+            
+    no_upper_shadow_negetive_K = pd.Series(no_upper_shadow_negetive_K,name='K_single_5')
+    
+    df = df.join(no_upper_shadow_negetive_K)
+    return df     
+
+
+'''
+6.大阴线
+
+几乎没有上影线和下影线
+要足够的长
+
+个人计算方法：
+
+    主体 > 0 
+    日内跌幅超过limit limit=-0.03    #实际上这里可能要根据波动率来计算会更好些
+    下影线 < 主体 * n  n=0.2
+    上影线 < 主体 * m  m=0.2
+    
+
+'''
+
+def K_single_6(df,n=0.2,m=0.2,limit=-0.03):                             #可以添加参数来调节
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    big_negetive_K = np.where((daily_return < -limit) * 1 + 
+                                          (n*abs(mainpart) > lower_shadow) * 1 +
+                                          (m*abs(mainpart) > upper_shadow) * 1 == 3,
+                                          1,0)
+            
+    big_negetive_K = pd.Series(big_negetive_K,name='K_single_6')
+    
+    df = df.join(big_negetive_K)
+    return df     
+
+
+'''
+7.下影线十字星
+
+下影线长，上影线小
+日内基本没有涨跌幅
+
+个人计算方法：
+abs(日内涨跌幅) < limit(0.005)
+下影线>abs(日内涨跌幅) * 2 + n(0.01)
+上影线<limit
+
+'''
+
+def K_single_7(df,n=0.01,limit=0.005):
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    lower_shadow_doji = np.where((abs(daily_return) < limit) * 1 +
+                                 (upper_shadow < limit) * 1 +
+                                 (lower_shadow > (2 * abs(daily_return) + n)) * 1 == 3,
+    1,0)
+    
+    lower_shadow_doji = pd.Series(lower_shadow_doji,name='K_single_7')
+    
+    df = df.join(lower_shadow_doji)
+    return df 
+
+
+'''
+8.上影线十字星
+
+上影线长，下影线小
+日内基本没有涨跌幅
+
+个人计算方法：
+abs(日内涨跌幅) < limit(0.005)
+上影线>abs(日内涨跌幅) * 2 + n(0.01)
+下影线<limit
+
+'''
+
+def K_single_8(df,n=0.01,limit=0.005):
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    upper_shadow_doji = np.where((abs(daily_return) < limit) * 1 +
+                                 (lower_shadow < limit) * 1 +
+                                 (upper_shadow > (2 * abs(daily_return) + n)) * 1 == 3,
+    1,0)
+    
+    upper_shadow_doji = pd.Series(upper_shadow_doji,name='K_single_8')
+    
+    df = df.join(upper_shadow_doji)
+    return df 
+
+
+'''
+9.双影线十字星
+
+上、下影线都长
+日内基本没有涨跌幅
+
+个人计算方法：
+abs(日内涨跌幅) < limit(0.005)
+上影线>abs(日内涨跌幅) * 2 + n(0.01)
+下影线>abs(日内涨跌幅) * 2 + n(0.01)
+
+'''
+
+def K_single_9(df,n=0.01,limit=0.005):                        #其实关于十字星这里，这个limit怎么选取,n怎么选取，都是很影响结果的
+    
+    mainpart,upper_shadow,lower_shadow = calc_K(data)
+    daily_return = df.close/df.open - 1
+    
+    bi_shadow_doji = np.where((abs(daily_return) < limit) * 1 +
+                                 (lower_shadow > (2 * abs(daily_return) + n)) * 1 +
+                                 (upper_shadow > (2 * abs(daily_return) + n)) * 1 == 3,
+    1,0)
+    
+    bi_shadow_doji = pd.Series(bi_shadow_doji,name='K_single_9')
+    
+    df = df.join(bi_shadow_doji)
+    return df 
+
+
+# 组合K线形态
+# 组合K线形态我个人分为简单的几个单K线组合，比如上述单K线的组合，比如一个底部十字星可能是一个大阴+十字+大阳
+# 其次是一个很多K线组合而成的，横跨一个较长时期的形态，比如双底，比如头肩底
+
+
+'''
+1.阳吃阴
+
+第二根阳线完全包含住前一根阴线
+
+计算方法：
+1. 前一天要求日内下跌幅度达到2%
+2. 第二天的open小于前一天的close，第二天的close大于前一天的open
+'''
+
+def K_combination_1(df, limit=-0.02):
+    
+    daily_return = df.close/df.open - 1
+    daily_return = daily_return.shift(1)
+    sign_1 = df.open/df.close.shift(1)
+    sign_2 = df.close/df.open.shift(1)
+    
+    posi_bigger_nege = np.where((daily_return<limit) * 1 +
+                                (sign_1 < 1) * 1 +
+                                (sign_2 > 1) * 1 ==3,
+    1,0)
+    
+    posi_bigger_nege = pd.Series(posi_bigger_nege,name = 'K_combination_1')
+    
+    df = df.join(posi_bigger_nege)
+    return df 
+
+
+'''
+2.阴吃阳
+
+第二根阳线完全包含住前一根阴线
+
+计算方法：
+1. 前一天要求日内上涨幅度达到2%
+2. 第二天的open大于前一天的close，第二天的close小于前一天的open
+
+'''
+
+def K_combination_2(df, limit=0.02):
+    
+    daily_return = df.close/df.open - 1
+    daily_return = daily_return.shift(1)
+    sign_1 = df.open/df.close.shift(1)
+    sign_2 = df.close/df.open.shift(1)
+    
+    nege_bigger_posi = np.where((daily_return>limit) * 1 +
+                                (sign_1 > 1) * 1 +
+                                (sign_2 < 1) * 1 ==3,
+    1,0)
+    
+    nege_bigger_posi = pd.Series(nege_bigger_posi,name = 'K_combination_2')
+    
+    df = df.join(nege_bigger_posi)
+    return df 
+
+
+'''
+3.红三兵：连续的3(n)根阴线
+不管是否低开
+'''
+
+def K_combination_3(df,n=3):        #扩展了下，可以变成n根连阴线
+    
+    if_up = df.close > df.open
+    posis = if_up.rolling(window=n).sum()
+    
+    posi = np.where(posis==3,1,0)     #这样子1表示出现了乌鸦三飞的情况
+    posi = pd.Series(posi,name='K_combination_3')
+    
+    df = df.join(posi)
+    return df
+
+
+'''
+4.乌鸦三(n)飞：连续的n跟阴线
+不管是否高开
+'''
+
+def K_combination_4(df,n=3):        #扩展了下，可以变成n根连阴线
+    
+    if_down = df.close < df.open
+    crows = if_down.rolling(window=n).sum()
+    
+    crows = np.where(crows==3,1,0)     #这样子1表示出现了乌鸦三飞的情况
+    crows = pd.Series(crows,name='K_combination_4')
+    
+    df = df.join(crows)
+    return df
+    
