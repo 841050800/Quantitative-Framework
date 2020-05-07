@@ -145,3 +145,11 @@ class Strategy_4():
         
         date_list = self.data_all[0].date
         es.get_return(self.capital_all,index_list)
+        
+if __name__ == '__main__':
+    MACD = Strategy_4()
+    MACD.set_account()
+    MACD.set_para(freq='day',start='2018-01-01',end='2020-01-01',fq='qfq',allowshort=False)
+    MACD.set_universe(['000001','000002'])
+    MACD.run()
+    MACD.evaluate_strategy()
