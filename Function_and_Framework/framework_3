@@ -55,10 +55,6 @@ class Strategy():
         for item in self.universe:                #提前把所有数据都获取了会不会更快点？
             self.data_all.append(get_k_data(item, self.start, self.end, self.freq, self.fq))
     
-    def set_benchmark(self,benchmark='index000300'):
-        self.benchmark = benchmark
-        self.benchmark_data = self.get_k_data(self.benchmark, self.freq, self.start, self.end, self.fq)
-    
     def handle_data(self):
         
         #首先获取数据，利用Get_data.py里的函数
