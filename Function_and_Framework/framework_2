@@ -147,14 +147,15 @@ class Strategy():
         
         date_list = self.data.date
         es.get_return(self.money,self.index_list)
-        
-Str_test = Strategy()
-Str_test.set_account()
-Str_test.set_universe(['000001','000002'])
-Str_test.set_para('day','2018-01-01','2020-01-01')
-Str_test.run()
-Str_test.portfolio
-Str_test.money
+
+if __name__ == '__main__':       
+    Str_test = Strategy()
+    Str_test.set_account()
+    Str_test.set_universe(['000001','000002'])
+    Str_test.set_para('day','2018-01-01','2020-01-01')
+    Str_test.run()
+    Str_test.portfolio
+    Str_test.money
 
 
 
