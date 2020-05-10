@@ -5,67 +5,111 @@ import math
 plt.rcParams['font.sans-serif']=['SimHei']
 plt.rcParams['axes.unicode_minus'] = False
 
-#数据结构：
-#date_list = Series()
-#account_money = Series()
-#date_and_hold = {date0:int0,date1,int1}
-
-#date_list = 
-
-def get_max_withdraw(Series):
+#benchmark_data 和 total_asset都是价格/财富的Series
+def trans_to_perc(a):
+    bb = "%.2f%%" % (a * 100)
+    return bb
+    
+def Net_value_trend(total_asset,date_list):
+    df_net = total_asset/total_asset[0]
+    df_net.plot(figsize=(16,12))
+    plt.title('股价净值走势',fontsize=15)
+    plt.xticks(date_list)
+    ax=plt.gca()
+    ax.spines['right'].set_color('none')
+    ax.spines['top'].set_color('none')
+    ax.xaxis.set_major_locator(mpl.ticker.MaxNLocator(8))  
+    plt.show()
+    
+def Total_return(total_asset):
+    total_ret = total_asset[(len(total_asset)-1)]/total_asset[0] - 1
+    annual_ret = (1 + total_ret) ** (252/len(total_asset)) - 1
+    total_ret = trans_to_perc(total_ret)
+    annual_ret = trans_to_perc(annual_ret)
+    
+    print('策略在回测期间总收益为:%s'%(total_ret))
+    print('策略在回测期间年化收益为:%s'%(annual_ret))
+    
+def Get_max_withdraw(Series):
     
     max2here = Series.expanding().max()
     withdraw = 1 - Series / max2here
+    max_withdraw = max(withdraw)
+    max_withdraw = trans_to_perc(max_withdraw)
+    
     #这里应该还要算一个最大回撤的天数的
-    return max(withdraw)
+    print('策略在回测期最大回撤为:%s'%(max_withdraw))
 
-def get_annual_return(Series):
-    Ra = np.zeros(len(Series))
-    for i in range(len(Series)):
-        Ret = Series[i] / Series[0] - 1
-        Ra[i] = (1 + Ret) ** (252/i) - 1 
-    return Ra
-
-def get_return(account_money,date_list):
-    strategy_total_return = account_money[(len(account_money)-1)]/account_money[0] - 1
-    strategy_daily_return = account_money / account_money.shift(1) - 1 
-    strategy_cum_return = account_money / account_money[0] - 1 
-    mean_daily_return = strategy_daily_return.mean()
-    std_daily_return = strategy_daily_return.std()
-    max_withdraw = get_max_withdraw(account_money)
+def Beta(total_asset,benchmark_data):
     
-    
-    print('策略在回测期间总收益为:%s'%(strategy_total_return))
-    print('策略的日收益均值为:%s,其标准差为%s'%(mean_daily_return,std_daily_return))
-    print('策略的最大回撤为:%s'%(max_withdraw))
-    print('策略的累计收益曲线如下图所示')
-
-    plt.figure(figsize=(12,8))
-    plt.plot(date_list,strategy_cum_return,lw=1,color='blue',label='累计收益')
-    
-def Beta(account_money,benchmark_data):
-    
-    s1 = account_money.pct_change()
-    s2 = benchmark_data.pct_change()
+    s1 = total_asset.pct_change().dropna()
+    s2 = benchmark_data.pct_change().dropna()
     
     beta = np.cov(s1,s2)[0][1]/np.var(s2)
-    return beta
+    beta = trans_to_perc(beta)
     
-def sharpe_ratio(account_money,risk_free):
+    print('策略在回测期beta为:%s'%(beta))
+
+def Alpha(total_asset,benchmark_data,riskf=0.03):
     
-    s1 = account_money.pct_change()
-    s1_mean = s1.mean()
+    s1 = total_asset.pct_change().dropna()
+    s2 = benchmark_data.pct_change().dropna()
+    
+    beta = np.cov(s1,s2)[0][1]/np.var(s2)
+    
+    total_ret = total_asset[(len(total_asset)-1)]/total_asset[0] - 1
+    annual_ret = (1 + total_ret) ** (252/len(total_asset)) - 1
+    
+    total_bench_ret = benchmark_data[(len(benchmark_data)-1)]/benchmark_data[0] - 1
+    annual_bench_ret = (1 + total_ret) ** (252/len(total_asset)) - 1
+    
+    alpha = annual_ret - (riskf + beta * (annual_bench_ret - riskf))
+    alpha = trans_to_perc(alpha)
+    
+    print('策略在回测期Alpha为:%s'%(alpha))
+
+#（年化收益率-无风险利率（3%））/年化收益波动率，其中：年化收益波动率 =stdev(日收益) *sqrt(252)
+def Sharpe_ratio(total_asset,riskf=0.03):
+    
+    total_ret = total_asset[(len(total_asset)-1)]/total_asset[0] - 1
+    annual_ret = (1 + total_ret) ** (252/len(total_asset)) - 1
+    s1 = total_asset.pct_change()
     s1_std = s1.std()
     
-    Sharpe_ratio = (s1_mean - risk_free)/s1_std
-    return Sharpe_ratio
+    sharpe_ratio = (annual_ret - riskf) / (s1_std * math.sqrt(252))
+    sharpe_ratio = trans_to_perc(sharpe_ratio)
+    
+    print('策略在回测期Sharpe_ratio为:%s'%(sharpe_ratio))
+    
 
-def alpha():
-    pass
+#(策略年化收益率 - 基准年化收益率)/年化相对收益波动率，其中：年化相对收益波动率 = stdev(策略每日收益率 - 基准每日收益率) * sqrt(252)
+def Information_ratio(total_asset,benchmark_data):
+    
+    total_ret = total_asset[(len(total_asset)-1)]/total_asset[0] - 1
+    annual_ret = (1 + total_ret) ** (252/len(total_asset)) - 1
+    
+    total_bench_ret = benchmark_data[(len(benchmark_data)-1)]/benchmark_data[0] - 1
+    annual_bench_ret = (1 + total_bench_ret) ** (252/len(benchmark_data)) - 1
+    
+    s1 = total_asset.pct_change().dropna()
+    s2 = benchmark_data.pct_change().dropna()
+    s3 = s1 - s2
+    IR = (annual_ret-annual_bench_ret) / (math.sqrt(len(s1)) * s3.std())
+    IR = trans_to_perc(IR)
+    
+    print('策略在回测期信息比率为:%s'%(IR))
 
-def Information_ratio(account_money,risk_free,benchmark_data):
-    pass
-   
+
+def position_evaluate(total_asset,money):
+    a = 1 - money/total_asset
+    max_a = a.max()
+    max_a = trans_to_perc(max_a)
+    mean_a = a.mean()
+    mean_a = trans_to_perc(mean_a)
+    print('策略在回测期最高仓位:%s'%(max_a))
+    print('策略在回测期平均仓位:%s'%(mean_a))
+    
+
 def Strategy_Volatility(account_money):
     pass
 
@@ -75,3 +119,4 @@ def winning_ratio():
 def Profit_to_Loss():
     #Profit/loss
     pass
+    
